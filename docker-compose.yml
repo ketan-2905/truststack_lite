@@ -1,0 +1,5 @@
+# Root entrypoint so `docker compose up --build` works from the repo root.
+# The full stack definition lives in infra/docker-compose.yml; paths there are
+# resolved relative to that file.
+include:
+  - infra/docker-compose.yml

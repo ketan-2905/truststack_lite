@@ -1,0 +1,196 @@
+# TrustStack Lite — local real infrastructure.
+# Run from the repo root with:  docker compose up --build
+#
+# Real services only: PostgreSQL, Redis, MinIO (S3-compatible), the API, the
+# async worker, the Next.js web app, Prometheus, and Grafana. No mocked
+# dependencies. Missing external OCR/KYC credentials are reported as
+# `not_configured` by /health, never faked.
+
+name: truststack-lite
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-truststack}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-truststack}
+      POSTGRES_DB: ${POSTGRES_DB:-truststack}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-truststack} -d ${POSTGRES_DB:-truststack}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:RELEASE.2024-06-13T22-53-53Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-truststack}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-truststack-secret}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      # The minio server image ships `mc` (but no curl). Configure an inline
+      # alias against the local server, then use `mc ready` for readiness.
+      test:
+        - "CMD-SHELL"
+        - "mc alias set hc http://127.0.0.1:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" >/dev/null 2>&1 && mc ready hc"
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  # Local webhook receiver for development/testing (echoes 200 for any request).
+  # Lets signed webhook deliveries succeed end-to-end without an external URL.
+  webhook-receiver:
+    image: mendhak/http-https-echo:31
+    environment:
+      HTTP_PORT: "8080"
+    ports:
+      - "${WEBHOOK_RECEIVER_PORT:-8888}:8080"
+
+  # One-shot: wait for MinIO and create the application bucket.
+  createbuckets:
+    image: minio/mc:RELEASE.2024-06-12T14-34-03Z
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 ${S3_ACCESS_KEY_ID:-truststack} ${S3_SECRET_ACCESS_KEY:-truststack-secret}; do
+        echo 'waiting for minio...'; sleep 2;
+      done;
+      mc mb --ignore-existing local/${S3_BUCKET:-truststack-documents};
+      mc anonymous set none local/${S3_BUCKET:-truststack-documents};
+      echo 'bucket ready';
+      "
+
+  api:
+    build:
+      context: ../apps/api
+    env_file:
+      - ../.env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      S3_ENDPOINT_URL: http://minio:9000
+      WEBHOOK_RECEIVER_URL: http://webhook-receiver:8080/
+      GOOGLE_DOCUMENT_AI_CREDENTIALS: /secrets/google-docai.json
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/google-docai.json
+    volumes:
+      - ./secrets:/secrets:ro
+    command: ["sh", "entrypoint.sh"]
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # The worker runs the SAME application image as the API (standard RQ pattern)
+  # so background jobs have full access to the database, object storage, OCR
+  # providers, the risk engine, and webhook delivery.
+  worker:
+    build:
+      context: ../apps/api
+    env_file:
+      - ../.env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      S3_ENDPOINT_URL: http://minio:9000
+      WEBHOOK_RECEIVER_URL: http://webhook-receiver:8080/
+      GOOGLE_DOCUMENT_AI_CREDENTIALS: /secrets/google-docai.json
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/google-docai.json
+    volumes:
+      - ./secrets:/secrets:ro
+    command: ["python", "-m", "app.worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os,redis; redis.Redis.from_url(os.environ['REDIS_URL']).ping()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  web:
+    build:
+      context: ../apps/web
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    depends_on:
+      api:
+        condition: service_started
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      prometheus:
+        condition: service_started
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  grafana_data:
