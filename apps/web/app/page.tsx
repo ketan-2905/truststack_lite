@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { getAccessToken } from "../lib/auth";
 import { apiUrl } from "../lib/api";
 
 type Health = {
@@ -11,8 +13,20 @@ type Health = {
 };
 
 export default function Home() {
+  const router = useRouter();
+  const token = getAccessToken();
   const [health, setHealth] = useState<Health | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Redirect to login if not authenticated
+    if (!token) {
+      router.push("/login");
+      return;
+    }
+    // Redirect to dashboard if authenticated
+    router.push("/dashboard");
+  }, [token, router]);
 
   useEffect(() => {
     fetch(apiUrl("/health"))

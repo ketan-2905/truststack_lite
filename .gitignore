@@ -25,3 +25,6 @@ npm-debug.log*
 # Local secrets (never commit)
 infra/secrets/
 *.json.key
+
+# Implementation tracking (local only, not for GitHub)
+implementation/

@@ -1,52 +1,294 @@
 # TrustStack Lite
 
-Risk-adaptive onboarding, consent governance, document verification, fraud/risk
-scoring, review operations, and signed webhook integration — built as one
-coherent, cloud-native system.
+**Risk-adaptive onboarding platform** with document verification, consent governance, fraud detection, and analyst review workflows.
 
-> **Status:** MD 01–08 implemented — repo + Docker infra, backend core & schema,
-> auth/tenancy/API keys/RBAC, consent & privacy ledger, document storage + real
-> OCR + redaction, verification provider adapters, the explainable risk engine,
-> and async workers + signed webhooks. Remaining MDs (operator dashboard,
-> observability, tests/load gates, deployment) build on this foundation.
+Built for the IDfy Software Engineer interview to demonstrate end-to-end ownership of identity, security, and scalability.
 
-## One-command local stack
+## Problem
 
-```bash
-cp .env.example .env
-docker compose up --build
+Identity onboarding requires coordinating multiple systems: document storage, OCR, KYC verification, risk scoring, audit compliance, and human review. Manual integration is error-prone and slow. TrustStack Lite proves a unified, credible approach.
+
+## Solution
+
+1. **Applicant submits identity document** → OCR extracts fields + redacts PII
+2. **Risk engine scores document** → rules-based decision (auto-approve / manual review)
+3. **Analyst reviews risky cases** → approves, rejects, or escalates
+4. **Signed webhook notifies client** → immutable audit trail
+5. **System supports multi-tenancy, consent lifecycle, real provider adapters** → production-ready
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Next.js Applicant & Analyst UI              │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │ (HTTP/JSON)
+┌─────────────────────────┬─────────────────────────────────────┐
+│     FastAPI Backend     │                                     │
+│  (Auth, Cases, Risk,    │  PostgreSQL │ Redis │ MinIO/S3      │
+│   Webhooks, Audit)      │                                     │
+└─────────────────────────┬─────────────────────────────────────┘
+                            │ (Job Queue)
+┌─────────────────────────┬─────────────────────────────────────┐
+│    ARQ Background       │                                     │
+│    Worker               │ Real OCR Provider │ Real KYC Provider
+│  (Document, Risk,       │ (Google / AWS)    │ (Persona / IDfy)
+│   Webhooks)             │                                     │
+└─────────────────────────┴─────────────────────────────────────┘
+
+Observability: Prometheus, Grafana, structured JSON logs
 ```
 
-Real services only — PostgreSQL, Redis, MinIO (S3-compatible), the API, the
-async **RQ worker (same image as the API)**, the Next.js web app, a local
-webhook receiver, Prometheus, and Grafana. No mocked dependencies. If external
-OCR/KYC credentials are absent, the system reports them as `not_configured` and
-dependent endpoints return `424 Failed Dependency` rather than faking success.
+## Quick Start
 
-### What is real vs. what needs credentials
+### Prerequisites
 
-- **Real now:** object storage (MinIO), the redaction image pipeline, the
-  deterministic risk engine, domain events, signed webhook delivery with
-  retries/backoff/replay, idempotent case creation.
-- **Real adapters, gated on credentials:** OCR (AWS Textract / Google Vision via
-  `OCR_PROVIDER`) and KYC verification (Persona via `KYC_PROVIDER`). Without
-  credentials these fail loudly with `424` (`dependency_not_configured` /
-  `missing_provider_config`) — no fake OCR/KYC success path exists. Enable real
-  external tests with `RUN_EXTERNAL_TESTS=true`.
+- Docker & Docker Compose
+- Git
 
-### Service URLs
+### Local Development
 
-| Service        | URL                              | Notes                          |
-|----------------|----------------------------------|--------------------------------|
-| API            | http://localhost:8000            | FastAPI                        |
-| API health     | http://localhost:8000/health     | DB / Redis / storage + providers |
-| OpenAPI docs   | http://localhost:8000/docs       | Swagger UI                     |
-| OpenAPI schema | http://localhost:8000/openapi.json |                              |
-| Web app        | http://localhost:3000            | Next.js (operator UI in MD 09) |
-| MinIO console  | http://localhost:9001            | user/pass from `.env`          |
-| Prometheus     | http://localhost:9090            |                                |
-| Grafana        | http://localhost:3001            | admin/admin by default         |
-| Webhook receiver | http://localhost:8888          | local echo receiver (dev/demo) |
+```bash
+# Clone and enter directory
+cd truststack-lite
+
+# Setup environment
+cp .env.example .env
+
+# Start all services (API, web, database, etc.)
+docker compose up -d --build
+
+# Wait for services to be healthy
+bash scripts/wait-for-services.sh
+
+# Verify stack is running
+curl http://localhost:8000/health | jq .
+```
+
+Services will be available at:
+
+| Service | URL | Login |
+|---|---|---|
+| **Web Dashboard** | http://localhost:3000 | See below |
+| **API Docs** | http://localhost:8000/docs | — |
+| **MinIO Console** | http://localhost:9001 | truststack / truststack-secret |
+| **Prometheus** | http://localhost:9090 | — |
+| **Grafana** | http://localhost:3001 | admin / admin |
+
+### Demo Credentials
+
+```
+Tenant Slug: acme
+Admin Email: admin@truststack.local
+Admin Password: change-me-local
+
+Analyst Email: analyst@truststack.local
+Analyst Password: change-me-local
+```
+
+## Features
+
+### Applicant Flow
+
+- [x] Login with email/password
+- [x] Create applicant + start onboarding case
+- [x] Accept versioned consent notice + receipt
+- [x] Upload identity document (image/PDF)
+- [x] View case status with risk score
+- [x] Audit timeline
+
+### Analyst Dashboard
+
+- [x] Metrics overview (total cases, pending review, approved, rejected)
+- [x] Case list with status filter
+- [x] Review queue (manual review tasks)
+- [x] Review detail page with:
+  - Risk score + severity
+  - Reason codes (e.g., duplicate_artifact, missing_consent)
+  - Redacted document preview
+  - Audit timeline
+  - Resolution form (approve/reject/escalate + notes)
+- [x] Searchable audit log
+- [x] Webhook endpoint management
+
+### Backend
+
+- [x] Multi-tenant isolation (API key + JWT auth)
+- [x] RBAC (tenant_admin, analyst, viewer)
+- [x] Consent ledger (immutable, versioned notices)
+- [x] Document storage (MinIO S3-compatible)
+- [x] OCR pipeline (Google Vision / Document AI / AWS Textract)
+- [x] Redaction (server-side image masking)
+- [x] Verification adapters (Persona, IDfy, Veriff, Onfido, etc.)
+- [x] Risk engine (rules-based policy, explainable reason codes)
+- [x] Async workers (ARQ + Redis)
+- [x] Signed webhooks (HMAC-SHA256, retries, idempotency)
+- [x] Audit logging (immutable, tenant-scoped)
+- [x] PII redaction in logs
+- [x] Prometheus metrics + Grafana dashboards
+
+## Testing
+
+### Run All Tests
+
+```bash
+# Backend unit + integration tests
+docker compose exec -T api pytest -q
+
+# Frontend tests
+docker compose exec -T web npm test
+
+# Smoke test (basic health checks)
+bash scripts/smoke-test.sh
+
+# Load test (p95 latency, error rate)
+bash scripts/load-test.sh
+
+# With coverage
+docker compose exec -T api pytest --cov=app --cov-report=html -q
+```
+
+### Linting & Type Checking
+
+```bash
+# Backend
+docker compose exec -T api ruff check app/
+
+# Frontend
+docker compose exec -T web npm run lint
+```
+
+### External Provider Tests (requires credentials)
+
+```bash
+# Only runs if OCR/KYC credentials are configured
+RUN_EXTERNAL_TESTS=true docker compose exec -T api pytest tests/external -q
+```
+
+## API Documentation
+
+OpenAPI schema available at **http://localhost:8000/docs**
+
+Key endpoints:
+
+- `POST /v1/auth/login` — JWT login
+- `POST /v1/applicants` — Create applicant
+- `POST /v1/onboarding-cases` — Start case
+- `POST /v1/consent` — Record consent
+- `POST /v1/documents` — Upload document
+- `GET /v1/onboarding-cases/{id}` — Get case status
+- `GET /v1/risk/decisions` — Get risk decision
+- `POST /v1/review/tasks/{id}/resolve` — Resolve review
+- `GET /v1/audit-events` — Audit log
+
+All require `Authorization: Bearer <token>` header (except `/login`).
+
+## Configuration
+
+### OCR Provider
+
+Choose one (or none for demo):
+
+```env
+# Google Cloud Vision (requires service account JSON)
+OCR_PROVIDER=google_vision
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+GOOGLE_CLOUD_PROJECT_ID=my-project
+
+# Google Document AI
+OCR_PROVIDER=google_document_ai
+GOOGLE_CLOUD_PROJECT_ID=my-project
+GOOGLE_DOCUMENT_AI_PROCESSOR_ID=processor-id
+GOOGLE_DOCUMENT_AI_LOCATION=us
+
+# AWS Textract
+OCR_PROVIDER=aws_textract
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+```
+
+Missing OCR → endpoints return `424 Failed Dependency` (no fallbacks).
+
+### KYC/Verification Provider
+
+Choose one (or none for demo):
+
+```env
+# Persona
+VERIFY_PROVIDER=persona
+PERSONA_API_KEY=...
+PERSONA_TEMPLATE_ID=...
+
+# IDfy (requires legal access)
+VERIFY_PROVIDER=idfy
+IDFY_API_KEY=...
+IDFY_ACCOUNT_ID=...
+```
+
+Missing KYC → endpoints return `424 Failed Dependency`.
+
+## Deployment
+
+### Docker Compose (Production-like)
+
+```bash
+docker compose -f infra/docker-compose.prod-like.yml up -d --build
+```
+
+### Kubernetes
+
+```bash
+# Create namespace
+kubectl apply -f infra/k8s/namespace.yaml
+
+# Create secrets
+kubectl create secret generic db-secret \
+  --from-literal=url='postgresql://...' -n truststack-lite
+
+# Deploy
+kubectl apply -f infra/k8s/api-deployment.yaml
+kubectl apply -f infra/k8s/worker-deployment.yaml
+kubectl apply -f infra/k8s/web-deployment.yaml
+kubectl apply -f infra/k8s/ingress.yaml
+```
+
+See [docs/deployment.md](docs/deployment.md) for detailed cloud instructions.
+
+## Interview Talking Points
+
+### Why This Project?
+
+**Problem solved:** Identity onboarding is complex (OCR, KYC, risk, compliance, review). No single solution handles end-to-end credibly.
+
+**Signals demonstrated:**
+1. **End-to-end ownership** — all layers (frontend, API, async workers, DB)
+2. **Scalability** — multi-tenant, async processing, Kubernetes-ready
+3. **Cloud-native** — containers, managed services support, observability
+4. **Fraud/risk tech** — rules-based scoring, reason codes, review queue
+5. **Security & compliance** — audit trail, consent ledger, PII handling
+6. **Strong testing** — unit, integration, load tests in CI
+7. **Product thinking** — applicant flow, analyst UX, real provider integrations
+
+### Trade-offs
+
+- **No ML risk model** → rules-first is explainable, auditable
+- **No video liveness** → would need certified PAD provider
+- **No Aadhaar/PAN API** → would require legal sandbox
+
+All intentional and documented.
+
+## Documentation
+
+- [docs/architecture.md](docs/architecture.md) — module breakdown
+- [docs/security.md](docs/security.md) — threat model, controls
+- [docs/testing.md](docs/testing.md) — test strategy, commands
+- [docs/deployment.md](docs/deployment.md) — local, K8s, cloud
+- [docs/tradeoffs.md](docs/tradeoffs.md) — intentional limitations
+
+## License
+
+MIT. Built for educational/interview purposes.
 
 ### Ports used
 

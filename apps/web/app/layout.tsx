@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { NavBar } from "../components/NavBar";
 
 export const metadata = {
   title: "TrustStack Lite",
@@ -16,7 +17,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           color: "#e6e9f0",
         }}
       >
-        {children}
+        <NavBar />
+        <main style={{ maxWidth: "1200px", margin: "0 auto", padding: "2rem 1.5rem" }}>{children}</main>
       </body>
     </html>
   );

@@ -1,0 +1,71 @@
+{
+  "dashboard": {
+    "title": "TrustStack Lite",
+    "tags": ["truststack"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "title": "API Requests (5m rate)",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total[5m])",
+            "legendFormat": "{{ method }} {{ path }}"
+          }
+        ],
+        "type": "graph"
+      },
+      {
+        "title": "API Latency (p95)",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "p95"
+          }
+        ],
+        "type": "graph"
+      },
+      {
+        "title": "Job Queue Depth",
+        "targets": [
+          {
+            "expr": "job_queue_size",
+            "legendFormat": "{{ queue }}"
+          }
+        ],
+        "type": "gauge"
+      },
+      {
+        "title": "Case Decisions (1h)",
+        "targets": [
+          {
+            "expr": "increase(case_decisions_total[1h])",
+            "legendFormat": "{{ decision }}"
+          }
+        ],
+        "type": "piechart"
+      },
+      {
+        "title": "Webhook Delivery Success Rate",
+        "targets": [
+          {
+            "expr": "rate(webhook_deliveries_success_total[5m]) / rate(webhook_deliveries_total[5m])",
+            "legendFormat": "success_rate"
+          }
+        ],
+        "type": "graph"
+      },
+      {
+        "title": "Provider Response Times",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(provider_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "{{ provider }}"
+          }
+        ],
+        "type": "graph"
+      }
+    ],
+    "schemaVersion": 27,
+    "version": 0
+  }
+}
