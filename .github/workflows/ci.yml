@@ -1,0 +1,66 @@
+name: ci
+
+# Assumes truststack_lite/ is the repository root. Adjust working-directory if
+# the project is nested under a parent monorepo.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install "ruff>=0.5,<1.0"
+      - name: Lint api
+        run: ruff check apps/api
+      - name: Lint worker
+        run: ruff check apps/worker
+
+  stack-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare env
+        run: cp .env.example .env
+      - name: Build and start stack
+        run: docker compose up -d --build
+      - name: Wait for services
+        run: bash scripts/wait-for-services.sh
+      - name: Apply migrations
+        run: docker compose exec -T api alembic upgrade head
+      - name: API tests
+        run: docker compose exec -T api pytest -q
+      - name: Worker tests
+        run: docker compose exec -T worker pytest -q
+      - name: Web tests
+        run: docker compose exec -T web npm test
+      - name: Smoke test
+        run: bash scripts/smoke-test.sh
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
+  docker-build-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build api image
+        run: docker build -t truststack-api:ci apps/api
+      - name: Trivy scan (api image)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: truststack-api:ci
+          format: table
+          exit-code: "0" # report-only in skeleton; tighten in MD 11
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
