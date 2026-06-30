@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { apiUrl } from "../lib/api.mjs";
+import { apiUrl } from "../lib/apiUrl.mjs";
 
 test("apiUrl joins base and path with a single slash", () => {
   assert.equal(apiUrl("/health"), "http://localhost:8000/health");

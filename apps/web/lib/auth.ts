@@ -41,10 +41,18 @@ export function decodeToken(token: string): DecodedToken | null {
   try {
     const parts = token.split(".");
     if (parts.length !== 3) return null;
-    const payload = JSON.parse(
-      Buffer.from(parts[1], "base64").toString("utf-8")
-    );
-    return payload;
+    // Decode base64url (JWT uses URL-safe base64) in the browser.
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const json =
+      typeof window === "undefined"
+        ? Buffer.from(base64, "base64").toString("utf-8")
+        : decodeURIComponent(
+            atob(base64)
+              .split("")
+              .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+              .join("")
+          );
+    return JSON.parse(json);
   } catch {
     return null;
   }
