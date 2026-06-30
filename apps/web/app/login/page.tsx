@@ -12,6 +12,7 @@ export default function LoginPage() {
   const [tenantSlug, setTenantSlug] = useState("acme");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -62,23 +63,43 @@ export default function LoginPage() {
           <label htmlFor="password" style={{ display: "block", marginBottom: "0.5rem", fontWeight: 500 }}>
             Password
           </label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            style={{
-              width: "100%",
-              padding: "0.75rem",
-              borderRadius: "4px",
-              border: "1px solid #555",
-              background: "#1a1a1a",
-              color: "#e6e9f0",
-              boxSizing: "border-box",
-            }}
-            placeholder="password"
-          />
+          <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+            <input
+              id="password"
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              style={{
+                width: "100%",
+                padding: "0.75rem",
+                paddingRight: "2.5rem",
+                borderRadius: "4px",
+                border: "1px solid #555",
+                background: "#1a1a1a",
+                color: "#e6e9f0",
+                boxSizing: "border-box",
+              }}
+              placeholder="password"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              style={{
+                position: "absolute",
+                right: "0.5rem",
+                background: "none",
+                border: "none",
+                color: "#999",
+                cursor: "pointer",
+                padding: "0.25rem 0.5rem",
+                fontSize: "1.2rem",
+              }}
+              title={showPassword ? "Hide password" : "Show password"}
+            >
+              {showPassword ? "👁️" : "👁️‍🗨️"}
+            </button>
+          </div>
         </div>
 
         <div style={{ marginBottom: "2rem" }}>
